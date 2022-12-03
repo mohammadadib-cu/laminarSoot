@@ -1,0 +1,3 @@
+laminarSoots.C
+
+LIB = $(FOAM_USER_LIBBIN)/liblaminarSoot
