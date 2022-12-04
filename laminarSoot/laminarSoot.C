@@ -69,21 +69,20 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     PAH_growth_enabled_(true),
     use_alpha_emprical_(true),
     oxidation_enabled_(true),
-    coagulation_enabled_(true),
-    PAH_names_(
-        sootProps_.get<wordList>("PAHs")
-        // sootProps_.lookup("PAHs")
-    ),
-    PAH_n_C_(PAH_names_.size()),
-    PAH_n_H_(PAH_names_.size()),
-    PAH_indicies_(PAH_names_.size()),
-    dimer_names_(PAH_names_.size() * (PAH_names_.size() +1 ) / 2),
-    dimer_n_C_(dimer_names_.size()),
-    dimer_n_H_(dimer_names_.size()),
-    dimer_PAH_1_index_(dimer_names_.size()),
-    dimer_PAH_2_index_(dimer_names_.size()),
-    dimer_PAH_1_id_(dimer_names_.size()),
-    dimer_PAH_2_id_(dimer_names_.size())
+    coagulation_enabled_(true)
+    // PAH_names_(
+    //     sootProps_.get<wordList>("PAHs")
+    // ),
+    // PAH_n_C_(PAH_names_.size()),
+    // PAH_n_H_(PAH_names_.size()),
+    // PAH_indicies_(PAH_names_.size()),
+    // dimer_names_(PAH_names_.size() * (PAH_names_.size() +1 ) / 2),
+    // dimer_n_C_(dimer_names_.size()),
+    // dimer_n_H_(dimer_names_.size()),
+    // dimer_PAH_1_index_(dimer_names_.size()),
+    // dimer_PAH_2_index_(dimer_names_.size()),
+    // dimer_PAH_1_id_(dimer_names_.size()),
+    // dimer_PAH_2_id_(dimer_names_.size())
 {
     if (integrateReactionRate_)
     {
@@ -94,6 +93,9 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
         Info<< "    using instantaneous reaction rate" << endl;
     }
 
+    speciesList_ = {"H", "H2", "OH", "H2O", "C2H2", "O2", "CO"};
+
+    findIndicies();
     readPAHs();
     buildDimers();
 }
@@ -271,7 +273,6 @@ bool Foam::combustionModels::laminarSoot<ReactionThermo>::readPAHs()
 }
 
 // Building Dimers
-
 template<class ReactionThermo>
 void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
 {
@@ -312,6 +313,30 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
         << " PAH1 index:" << dimer_PAH_1_index_[i] << " PAH2 index:" << dimer_PAH_2_index_[i] << endl;
     }
 
+}
+
+// Building Dimers
+
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
+{
+    basicSpecieMixture& composition = this->thermo().composition();
+    forAll(speciesList_, i)
+    {
+        const label specieIndex = composition.species()[speciesList_[i]];
+        if (!composition.species().found(speciesList_[i]))
+        {
+            FatalIOErrorIn("laminarSoot::findIndicies()", this->thermo())
+                << speciesList_[i] <<" is not found in available species "
+                << composition.species() << exit(FatalIOError);
+        }
+        speciesIndicies_.insert
+        (
+            speciesList_[i],
+            specieIndex
+        );
+        Info << speciesList_[i] << " is found!" << endl;
+    }
 }
 
 // ************************************************************************* //

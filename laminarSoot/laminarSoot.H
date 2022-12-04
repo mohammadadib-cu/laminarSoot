@@ -74,6 +74,7 @@ protected:
     // Soot properties dictionary
     const IOdictionary sootProps_;
 
+
     // Inception Flag
     bool inception_enabled_;
     // Surface growth Flags
@@ -84,6 +85,11 @@ protected:
     bool oxidation_enabled_;
     // Coagulation flag
     bool coagulation_enabled_;
+
+    // Species List
+    wordList speciesList_;
+    // Species Indicies
+    HashTable<label> speciesIndicies_;
 
     // Precursor PAH Info
     wordList PAH_names_;
@@ -156,6 +162,8 @@ public:
         virtual bool readPAHs();
 
         virtual void buildDimers();
+
+        virtual void findIndicies();
 };
 
 
