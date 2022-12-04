@@ -164,6 +164,27 @@ public:
         virtual void buildDimers();
 
         virtual void findIndicies();
+
+        // Return Molecular Weight in kg/mol
+        virtual dimensioned<scalar> W(label index)
+        {
+            basicSpecieMixture& composition = this->thermo().composition();
+            return composition.W(index) / 1000 * dimensionedScalar("onekgPerMol", dimensionSet(1,0,0,0,-1,0,0), scalar(1));
+        };
+        
+        // Return concentration in mol/m3
+        virtual tmp<volScalarField> C(label index)
+        {
+            basicSpecieMixture& composition = this->thermo().composition();
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    "C",
+                    (composition.Y()[index] * this->thermo().rho() / W(index))
+                )
+            );
+        };
 };
 
 

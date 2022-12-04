@@ -84,6 +84,7 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     // dimer_PAH_1_id_(dimer_names_.size()),
     // dimer_PAH_2_id_(dimer_names_.size())
 {
+
     if (integrateReactionRate_)
     {
         Info<< "    using integrated reaction rate" << endl;
@@ -94,7 +95,6 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     }
 
     speciesList_ = {"H", "H2", "OH", "H2O", "C2H2", "O2", "CO"};
-
     findIndicies();
     readPAHs();
     buildDimers();
@@ -338,5 +338,21 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
         Info << speciesList_[i] << " is found!" << endl;
     }
 }
+
+// Return Molecular Weight in kg/mol
+// template<class ReactionThermo>
+// dimensionedScalar Foam::combustionModels::laminarSoot<ReactionThermo>::W(label index) const
+// {
+//     basicSpecieMixture& composition = this->thermo().composition();
+//     return composition.W(index) / 1000 * dimensionedScalar("onekgPerMol", dimensionSet(1,0,0,0,-1,0,0), scalar(1));
+// }
+
+// Return concentration in mol/m3
+// template<class ReactionThermo>
+// volScalarField Foam::combustionModels::laminarSoot<ReactionThermo>::C(label index) const
+// {
+//     basicSpecieMixture& composition = this->thermo().composition();
+//     return composition.Y()[index] * this->thermo().rho() / W(index);
+// }
 
 // ************************************************************************* //
