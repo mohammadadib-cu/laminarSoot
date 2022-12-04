@@ -76,8 +76,14 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     ),
     PAH_n_C_(PAH_names_.size()),
     PAH_n_H_(PAH_names_.size()),
-    PAH_indicies_(PAH_names_.size())
-
+    PAH_indicies_(PAH_names_.size()),
+    dimer_names_(PAH_names_.size() * (PAH_names_.size() +1 ) / 2),
+    dimer_n_C_(dimer_names_.size()),
+    dimer_n_H_(dimer_names_.size()),
+    dimer_PAH_1_index_(dimer_names_.size()),
+    dimer_PAH_2_index_(dimer_names_.size()),
+    dimer_PAH_1_id_(dimer_names_.size()),
+    dimer_PAH_2_id_(dimer_names_.size())
 {
     if (integrateReactionRate_)
     {
@@ -89,6 +95,7 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     }
 
     readPAHs();
+    buildDimers();
 }
 
 
@@ -263,5 +270,48 @@ bool Foam::combustionModels::laminarSoot<ReactionThermo>::readPAHs()
     return true;
 }
 
+// Building Dimers
+
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
+{
+    basicSpecieMixture& composition = this->thermo().composition();
+
+    label dimer_size = PAH_names_.size() * (PAH_names_.size() +1 ) / 2;
+    Info << dimer_size << " possible dimers are created! \n" << endl;
+    dimer_names_.resize(dimer_size);
+    dimer_n_C_.resize(dimer_size);
+    dimer_n_H_.resize(dimer_size);
+    dimer_PAH_1_index_.resize(dimer_size);
+    dimer_PAH_2_index_.resize(dimer_size);
+    dimer_PAH_1_id_.resize(dimer_size);
+    dimer_PAH_2_id_.resize(dimer_size);
+
+
+    label dimer_id = -1;
+
+    for (int i = 0; i < PAH_names_.size(); i++) {
+        for (int j = i; j < PAH_names_.size(); j++) {
+            dimer_id += 1;
+            dimer_names_[dimer_id] = PAH_names_[i] + PAH_names_[j];
+            dimer_n_C_[dimer_id] = PAH_n_C_[i] + PAH_n_C_[j];
+            dimer_n_H_[dimer_id] = PAH_n_H_[i] + PAH_n_H_[j];
+            dimer_PAH_1_index_[dimer_id] = composition.species()[PAH_names_[i]];
+            dimer_PAH_2_index_[dimer_id] = composition.species()[PAH_names_[j]];
+            dimer_PAH_1_id_[dimer_id] = i;
+            dimer_PAH_2_id_[dimer_id] = j;
+        }
+    }
+
+
+
+    Info << "Outputing Dimers \n" << endl;
+    forAll(dimer_names_, i)
+    {
+        Info << dimer_names_[i] << ": C" <<  dimer_n_C_[i] << "H" << dimer_n_H_[i] 
+        << " PAH1 index:" << dimer_PAH_1_index_[i] << " PAH2 index:" << dimer_PAH_2_index_[i] << endl;
+    }
+
+}
 
 // ************************************************************************* //

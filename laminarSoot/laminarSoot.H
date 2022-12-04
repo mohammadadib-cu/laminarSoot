@@ -91,6 +91,16 @@ protected:
     labelList PAH_n_H_;
     labelList PAH_indicies_;
 
+    // Dimer Info
+    wordList dimer_names_;
+    labelList dimer_n_C_;
+    labelList dimer_n_H_;
+    labelList dimer_PAH_1_index_;
+    labelList dimer_PAH_2_index_;
+    labelList dimer_PAH_1_id_;
+    labelList dimer_PAH_2_id_;
+
+
 private:
 
     // Private Member Functions
@@ -144,6 +154,8 @@ public:
         virtual bool read();
 
         virtual bool readPAHs();
+
+        virtual void buildDimers();
 };
 
 
