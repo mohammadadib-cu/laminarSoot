@@ -86,6 +86,12 @@ protected:
     // Coagulation flag
     bool coagulation_enabled_;
 
+    // Soot tracked fields
+    volScalarField N_agg_;
+    volScalarField N_pri_;
+    volScalarField C_tot_;
+    volScalarField H_tot_;
+
     // Species List
     wordList speciesList_;
     // Species Indicies
@@ -185,6 +191,36 @@ public:
                 )
             );
         };
+
+        //- Return the number concentration of agglomerates N_agg
+        // Units: mol/kg
+        virtual tmp<volScalarField> N_agg() const
+        {
+            return N_agg_;
+        };
+
+        //- Return the number concentration of primary particles N_pri
+        // Units: mol/kg
+        virtual tmp<volScalarField> N_pri() const
+        {
+            return N_pri_;
+        };
+
+        //- Return the carbon contant of soot C_tot
+        // Units: mol/kg
+        virtual tmp<volScalarField> C_tot() const
+        {
+            return C_tot_;
+        };
+
+        //- Return the carbon contant of soot H_tot
+        // Units: mol/kg
+        virtual tmp<volScalarField> H_tot() const
+        {
+            return H_tot_;
+        };
+
+
 };
 
 

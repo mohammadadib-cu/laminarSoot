@@ -69,20 +69,55 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     PAH_growth_enabled_(true),
     use_alpha_emprical_(true),
     oxidation_enabled_(true),
-    coagulation_enabled_(true)
-    // PAH_names_(
-    //     sootProps_.get<wordList>("PAHs")
-    // ),
-    // PAH_n_C_(PAH_names_.size()),
-    // PAH_n_H_(PAH_names_.size()),
-    // PAH_indicies_(PAH_names_.size()),
-    // dimer_names_(PAH_names_.size() * (PAH_names_.size() +1 ) / 2),
-    // dimer_n_C_(dimer_names_.size()),
-    // dimer_n_H_(dimer_names_.size()),
-    // dimer_PAH_1_index_(dimer_names_.size()),
-    // dimer_PAH_2_index_(dimer_names_.size()),
-    // dimer_PAH_1_id_(dimer_names_.size()),
-    // dimer_PAH_2_id_(dimer_names_.size())
+    coagulation_enabled_(true),
+    N_agg_
+    (
+        IOobject
+        (
+            "N_agg",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::MUST_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh()
+    ),
+    N_pri_
+    (
+        IOobject
+        (
+            "N_pri",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::MUST_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh()
+    ),
+    C_tot_
+    (
+        IOobject
+        (
+            "C_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::MUST_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh()
+    ),
+    H_tot_
+    (
+        IOobject
+        (
+            "H_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::MUST_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh()
+    )
 {
 
     if (integrateReactionRate_)
@@ -339,20 +374,5 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
     }
 }
 
-// Return Molecular Weight in kg/mol
-// template<class ReactionThermo>
-// dimensionedScalar Foam::combustionModels::laminarSoot<ReactionThermo>::W(label index) const
-// {
-//     basicSpecieMixture& composition = this->thermo().composition();
-//     return composition.W(index) / 1000 * dimensionedScalar("onekgPerMol", dimensionSet(1,0,0,0,-1,0,0), scalar(1));
-// }
-
-// Return concentration in mol/m3
-// template<class ReactionThermo>
-// volScalarField Foam::combustionModels::laminarSoot<ReactionThermo>::C(label index) const
-// {
-//     basicSpecieMixture& composition = this->thermo().composition();
-//     return composition.Y()[index] * this->thermo().rho() / W(index);
-// }
 
 // ************************************************************************* //
