@@ -71,6 +71,26 @@ protected:
         //- Return the chemical time scale
         tmp<volScalarField> tc() const;
 
+    // Soot properties dictionary
+    const IOdictionary sootProps_;
+
+    // Inception Flag
+    bool inception_enabled_;
+    // Surface growth Flags
+    bool HACA_growth_enabled_;
+    bool PAH_growth_enabled_ ;
+    bool use_alpha_emprical_;
+    // Surface oxidation Flag
+    bool oxidation_enabled_;
+    // Coagulation flag
+    bool coagulation_enabled_;
+
+    // Precursor PAH Info
+    wordList PAH_names_;
+    labelList PAH_n_C_;
+    labelList PAH_n_H_;
+    labelList PAH_indicies_;
+
 private:
 
     // Private Member Functions
@@ -104,7 +124,12 @@ public:
     virtual ~laminarSoot();
 
 
+    // Member Data
+    
+
+
     // Member Functions
+
 
         //- Correct combustion rate
         virtual void correct();
@@ -117,6 +142,8 @@ public:
 
         //- Update properties from given dictionary
         virtual bool read();
+
+        virtual bool readPAHs();
 };
 
 

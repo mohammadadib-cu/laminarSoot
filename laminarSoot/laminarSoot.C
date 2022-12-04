@@ -29,6 +29,7 @@ License
 #include "laminarSoot.H"
 #include "fvmSup.H"
 #include "localEulerDdtScheme.H"
+#include "IFstream.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -51,7 +52,32 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     integrateReactionRate_
     (
         this->coeffs().getOrDefault("integrateReactionRate", true)
-    )
+    ),
+    sootProps_
+    (
+        IOobject
+        (
+            "sootProperties",
+            this->mesh().time().constant(),
+            this->mesh(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE
+        )
+    ),
+    inception_enabled_(true),
+    HACA_growth_enabled_(true),
+    PAH_growth_enabled_(true),
+    use_alpha_emprical_(true),
+    oxidation_enabled_(true),
+    coagulation_enabled_(true),
+    PAH_names_(
+        sootProps_.get<wordList>("PAHs")
+        // sootProps_.lookup("PAHs")
+    ),
+    PAH_n_C_(PAH_names_.size()),
+    PAH_n_H_(PAH_names_.size()),
+    PAH_indicies_(PAH_names_.size())
+
 {
     if (integrateReactionRate_)
     {
@@ -61,6 +87,8 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     {
         Info<< "    using instantaneous reaction rate" << endl;
     }
+
+    readPAHs();
 }
 
 
@@ -180,7 +208,59 @@ bool Foam::combustionModels::laminarSoot<ReactionThermo>::read()
         return true;
     }
 
+    
+
     return false;
+}
+
+template<class ReactionThermo>
+bool Foam::combustionModels::laminarSoot<ReactionThermo>::readPAHs()
+{
+    sootProps_.readEntry("PAHs", PAH_names_);
+    PAH_n_C_.resize(PAH_names_.size());
+    PAH_n_H_.resize(PAH_names_.size());
+    PAH_indicies_.resize(PAH_names_.size());
+
+    const ReactionThermo& thermo = this->thermo();
+    const dictionary thermoDict = IFstream(fileName(thermo.lookup("foamChemistryThermoFile")).expand())();
+
+    forAll(PAH_names_, i)
+    {
+        PAH_indicies_[i] = this->thermo().composition().species()[PAH_names_[i]];
+        const dictionary* elemsDict = thermoDict.subDict(PAH_names_[i]).findDict("elements");
+        wordList elemNames(elemsDict->toc());
+        
+        forAll(elemNames, eni)
+        {
+            if (elemNames[eni] == "C")
+            {
+                PAH_n_C_[i] = elemsDict->getOrDefault<label>
+                (
+                    elemNames[eni],
+                    0
+                );        	
+            }else if (elemNames[eni] == "H"){
+                PAH_n_H_[i] = elemsDict->getOrDefault<label>
+                (
+                    elemNames[eni],
+                    0
+                );         	
+            
+            }
+
+        }
+
+    };
+
+    // Outputing the list of PAHs
+    Info << "Incepient species\n" << endl;
+    forAll(PAH_names_, i)
+    {
+        const label index = PAH_indicies_[i];
+        Info << PAH_names_[i] << ": C" << PAH_n_C_[i] << "H" << PAH_n_H_[i] << " index in species: " << PAH_indicies_[i] << " MW:" << this->thermo().composition().W(index) << endl;
+    }
+
+    return true;
 }
 
 
