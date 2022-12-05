@@ -347,6 +347,34 @@ public:
             );
         };
 
+        // Return reverse rate of physical dimerization in m3/mol-s
+        virtual tmp<volScalarField> k_REAC()
+        {
+            // Chemical dimerization rate constants
+            dimensionedScalar Ea_k_REAC
+            (
+                "Ea_k_REAC",
+                dimensionSet(1,2,-2,0,-1,0,0),
+                scalar(96232.0)
+            );
+
+            dimensionedScalar A_k_REAC
+            (
+                "A_k_REAC",
+                dimensionSet(0,3,-1,0,-1,0,0),
+                scalar(5.0e6)
+            );
+            const volScalarField& T = this->thermo().T();
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    "k_REAC",
+                    (A_k_REAC * exp(-Ea_k_REAC/(Ru_ * T)))
+                )
+            );
+        }
+
        
 };
 
