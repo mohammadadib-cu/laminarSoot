@@ -142,9 +142,8 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     ),
     inception_enabled_(true),
     HACA_growth_enabled_(true),
+    HACA_oxidation_enabled_(true),
     PAH_growth_enabled_(true),
-    use_alpha_emprical_(true),
-    oxidation_enabled_(true),
     coagulation_enabled_(true),
     N_agg_
     (
@@ -253,8 +252,90 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
             IOobject::AUTO_WRITE
         ),
         this->mesh(),dimensionedScalar("A_tot", dimensionSet(-1,2,0,0,0,0,0), 2.0e-9)
+    ),
+    S_inc_N_
+    (
+        IOobject
+        (
+            "S_inc_N",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_inc_N", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    S_inc_C_tot_
+    (
+        IOobject
+        (
+            "S_inc_C_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_inc_C_tot", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    S_inc_H_tot_
+    (
+        IOobject
+        (
+            "S_inc_H_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_inc_H_tot", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    S_grow_C_tot_
+    (
+        IOobject
+        (
+            "S_grow_C_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_grow_C_tot", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    S_grow_H_tot_
+    (
+        IOobject
+        (
+            "S_grow_H_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_grow_H_tot", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    S_ox_C_tot_(
+        IOobject
+        (
+            "S_ox_C_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_ox_C_tot", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    S_coag_N_agg_
+    (
+        IOobject
+        (
+            "S_coag_N_agg",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(), dimensionedScalar("S_coag_N_agg", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
     )
-
 {
 
     if (integrateReactionRate_)
@@ -477,8 +558,6 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
         }
     }
 
-
-
     Info << "Outputing Dimers \n" << endl;
     forAll(dimer_names_, i)
     {
@@ -489,7 +568,6 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
 }
 
 // Building Dimers
-
 template<class ReactionThermo>
 void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
 {
@@ -525,7 +603,6 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateMorphology()
         Info<< "enforcing n_p = 1\n" << endl;
         n_p_.min(1.00000001);
     }
-
     // Total volume of soot per kg of gas
     volScalarField V_tot(C_tot() * W_carbon_ / rho_soot_);
     // Volume of each primary particles
@@ -534,24 +611,140 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateMorphology()
     volScalarField V_agg(V_tot / (N_agg() * Av_));
     // Mass of agglomerate
     volScalarField m_agg(V_agg * rho_soot_); 
-
     // Primary particle diameter
     d_p_ = pow(6.0 * V_p / (pi_), 1.0/3.0);
-
     // Surface area of each primary particle
     volScalarField A_p(pi_ * d_p_ * d_p_);
-
     // Total surface area
     A_tot_ = N_pri() * Av_ * A_p;
-
     //  Mobility diameter
     d_m_ = d_p_ * pow(n_p_, 0.45);
-
     // Gyration Diameter
     volScalarField n_p_lowerlimit (n_p_*0.0+1.5);
     d_g_ = (n_p_ <= n_p_lowerlimit) * (d_m_ / 1.29) + (n_p_ > n_p_lowerlimit) * (d_m_ / (pow(n_p_, -0.2)+0.4));
 
 }
+
+// Updating inception source terms
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::updateInception()
+{
+    S_inc_N_ *= 0.0;
+    S_inc_C_tot_ *= 0.0;
+    S_inc_H_tot_ *= 0.0;
+    if (inception_enabled_){
+        volScalarField rho = this->thermo().rho();
+        forAll(dimer_names_, i)
+        {
+            // PAH Index and Id
+            label id1 = dimer_PAH_1_id_[i];
+            label id2 = dimer_PAH_2_id_[i];
+            volScalarField dimerROPField(dimerROP(id1, id2));
+            // N_agg Source Term
+            S_inc_N_ += (dimer_n_C_[i] / C_min_) * dimerROPField / rho;
+            // C_tot Source Term
+            S_inc_C_tot_ += dimer_n_C_[i] * dimerROPField / rho;
+            // H_tot Source Term
+            S_inc_H_tot_ += dimer_n_H_[i] * dimerROPField / rho;
+        }
+    }
+}
+
+// Updating growth source terms
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::updateGrowth()
+{
+    S_grow_C_tot_ *= 0.0;
+    S_grow_H_tot_ *= 0.0;
+
+    if (HACA_growth_enabled_)
+    {
+        // // Species indicies
+        // label H_i = speciesIndicies_["H"];
+        // label OH_i S_ox_C_tot_= speciesIndicies_["OH"];
+        // label H2_i = speciesIndicies_["H2"];
+        // label H2O_i = speciesIndicies_["H2O"];
+        // label C2H2_i = speciesIndicies_["C2H2"];
+        // label O2_i = speciesIndicies_["O2"];
+        
+        // const volScalarField& T = this->thermo().T();
+
+        // dimensionedScalar oneKelvin(dimTemperature, scalar(1.0));
+        // dimensionedScalar k_unit(dimensionSet(0,3,-1,0,-1,0,0), scalar(1.0));
+
+        // // Forward Reaction Rates
+        // // Units : m3/mol-s
+        // volScalarField k_1(k_unit * 4.17e7 * exp(oneKelvin * (-6542.52) / T));
+        // volScalarField k_2(k_unit * 1.00e4 * pow(T/oneKelvin, 0.734) * exp(oneKelvin * (-719.68) / T));
+        // volScalarField k_3(k_unit * 2.00e7 * pow(T/oneKelvin, 0.0));
+        // volScalarField k_4(k_unit * 8.00e1 * pow(T/oneKelvin, 1.56) * exp(oneKelvin * (-1912.43) / T));
+        // volScalarField k_5(k_unit * 2.20e6 * exp(oneKelvin * (-3774.53) / T));
+        // volScalarField k_6(k_unit * 0.13e0 * pow(T/oneKelvin, 0.0));
+
+        // // Reverse Reaction Rates
+        // // Units : m3/mol-s
+        // volScalarField k_r_1(k_unit * 3.9e6 * exp(oneKelvin * (-5535.98) / T));
+        // volScalarField k_r_2(k_unit * 3.68e2 * pow(T/oneKelvin, 1.139) * exp(oneKelvin * (-8605.94) / T));
+
+        // // chi_soot_0
+        // dimensionedScalar chi_soot_0_denum_limit("chi_soot_0_denum_limit",dimless/dimTemperature, scalar(1e-20));
+        // volScalarField chi_soot_0_denum
+        // (
+        //     max 
+        //     (
+        //         k_r_1 * C(H2_i) + k_r_2 * C(H2O_i) + k_3 * C(H_i) + k_4 * C(C2H2_i) + k_5 * C(O2_i) + k_1 * C(H_i) + k_2 * C(OH_i),
+        //         chi_soot_0_denum_limit
+        //     )
+        // );
+
+        // dimensionedScalar chi_soot_CH(dimensionSet(0,-2,0,0,0,0,0), scalar(2.3e19));
+        // volScalarField chi_soot_0
+        // (
+        //     (k_1 * C(H_i) + k_2 * C(OH_i)) / chi_soot_0_denum * chi_soot_CH   
+        // );
+
+        // // C_soot_0
+        // volScalarField C_soot_0
+        // (
+        //     A_tot_ / Av_ * chi_soot_0
+        // );
+
+        // alpha - surface reactivity
+        // volScalarField alpha
+        // (
+        //     tanh
+        //     (
+        //         (12.56 - 0.00563 * T / oneKelvin) / log10 ( rho_soot_ * pi_ / 6.0 * pow(d_p_, 3.0) * Av_ / W_carbon_ ) - 
+        //         1.38 + 0.00068 * T / oneKelvin
+        //     )
+        // );
+
+        // alpha.max(0.0);
+        // alpha.min(1.0);
+
+
+        // if (HACA_growth_enabled_){
+        S_grow_C_tot_ += HACAGrowthRate();
+        S_grow_H_tot_ += HACAGrowthRate() * (0.25 / 2.00);
+        // }
+
+        // if (HACA_oxidation_enabled_){
+        //     S_grow_C_tot_ += -2 * alpha * k_5 * C(O2_i) * C_soot_0 - k_6 * C(OH_i) * N_agg();
+        // }
+    }
+
+}
+
+// Updating growth source terms
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::updateOxidation()
+{
+    S_ox_C_tot_ *= 0.0;
+    if (HACA_oxidation_enabled_){
+        S_ox_C_tot_ += HACAOxidationRate();
+    }
+}
+
 
 
 // ************************************************************************* //
