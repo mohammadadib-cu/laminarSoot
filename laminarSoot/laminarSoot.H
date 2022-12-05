@@ -265,6 +265,88 @@ public:
             return H_tot_;
         };
 
+        // Mass of PAH
+        virtual dimensioned<scalar> m_PAH(label id)
+        {
+            label index = PAH_indicies_[id];
+            return W(index) / Av_;            
+        };
+
+        // Diameter of PAH
+        virtual dimensioned<scalar> d_PAH(label id)
+        {
+            const dimensionedScalar rho_PAH = PAH_rho_const_ * (W_carbon_ * PAH_n_C_[id] + W_hydrogen_ * PAH_n_H_[id]) / (PAH_n_C_[id] +  PAH_n_H_[id]);
+            const dimensionedScalar V_PAH = m_PAH(id) / rho_PAH;
+            return pow(6.0 * V_PAH / pi_, 1.0/3.0);
+        };
+
+        // Return forward rate of physical dimerization in m3/mol-s
+        virtual tmp<volScalarField> k_FWD(label id1, label id2)
+        {
+            const volScalarField& T = this->thermo().T();
+            // reduced dimer diameter
+            const dimensionedScalar d_reduced = 2 * d_PAH(id1) * d_PAH(id2) / (d_PAH(id1) + d_PAH(id2));
+            // reduced dimer mass
+            const dimensionedScalar m_reduced = m_PAH(id1) * m_PAH(id2) / (m_PAH(id1) + m_PAH(id2));
+
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    "k_FWD",
+                    (1.0 * 2.2 * 0.1 * Av_ * d_reduced * d_reduced * pow(8.0 * pi_ * kB_ / m_reduced, 0.5) * pow(T, 0.5))
+                )
+            );
+        };
+
+        // Return reverse rate of physical dimerization in m3/mol-s
+        virtual tmp<volScalarField> k_REV(label id1, label id2)
+        {
+            // Constants
+            dimensionedScalar a_k_REV
+            (
+                "a_k_REV",
+                dimensionSet(0,0,0,0,0,0,0),
+                scalar(0.115)
+            );
+
+            dimensionedScalar b_k_REV
+            (
+                "b_k_REV",
+                dimensionSet(0,0,0,0,0,0,0),
+                scalar(0.18)
+            );
+
+            dimensionedScalar c_k_REV
+            (
+                "c_k_REV",
+                dimensionSet(0,2,-2,0,0,0,0),
+                scalar(970688.0)
+            );
+
+            dimensionedScalar d_k_REV
+            (
+                "d_k_REV",
+                dimensionSet(1,2,-2,0,-1,0,0),
+                scalar(34069.0)
+            );
+
+            const volScalarField& T = this->thermo().T();
+            label index1 = PAH_indicies_[id1];
+            label index2 = PAH_indicies_[id2];
+            const dimensionedScalar W_reduced = W(index1) * W(index2) / (W(index1) + W(index2));
+            const dimensionedScalar epsilon = c_k_REV * W_reduced - d_k_REV;
+
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    "k_REV",
+                    (k_FWD(id1, id2) * pow(10.0, -b_k_REV) * exp(-a_k_REV * epsilon * 2.3025851/(Ru_ * T)))
+                )
+            );
+        };
+
        
 };
 
