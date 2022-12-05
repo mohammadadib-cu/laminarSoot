@@ -58,6 +58,42 @@ class laminarSoot
 :
     public ChemistryCombustion<ReactionThermo>
 {
+    // Static data
+    static const label pi_ = Foam::constant::mathematical::pi;
+
+    static const Foam::dimensionedScalar Av_;
+    static const Foam::dimensionedScalar kB_;
+    static const Foam::dimensionedScalar Ru_;
+    static const Foam::dimensionedScalar rho_soot_;
+    static const Foam::dimensionedScalar W_carbon_;
+    static const Foam::dimensionedScalar W_hydrogen_;
+    static const Foam::dimensionedScalar C_min_;
+    static const Foam::dimensionedScalar H_min_;
+    static const Foam::dimensionedScalar PAH_rho_const_;
+
+    // // Carbon and hydrogen atoms in the smallest soot particle
+    // static const dimensioned<scalar> C_min_
+    // (
+    //     "C_min",
+    //     dimensionSet(0,0,0,0,0,0,0),
+    //     scalar(378)
+    // );
+
+    // static const dimensioned<scalar> H_min_
+    // (
+    //     "H_min_",
+    //     dimensionSet(0,0,0,0,0,0,0),
+    //     scalar(378)
+    // );
+
+    // // Constant for converting molecular weight to density
+    // static const dimensioned<scalar> PAH_rho_const_
+    // (
+    //     "PAH_rho_const_",
+    //     dimensionSet(0,-3,0,0,1,0,0),
+    //     scalar(171943.5197)
+    // );
+
     // Private data
 
         //- Integrate reaction rate over the time-step
@@ -91,6 +127,13 @@ protected:
     volScalarField N_pri_;
     volScalarField C_tot_;
     volScalarField H_tot_;
+
+    // Morphology
+    volScalarField n_p_;
+    volScalarField d_p_;
+    volScalarField d_m_;
+    volScalarField d_g_;
+    volScalarField A_tot_;
 
     // Species List
     wordList speciesList_;
@@ -171,6 +214,8 @@ public:
 
         virtual void findIndicies();
 
+        virtual void updateMorphology();
+
         // Return Molecular Weight in kg/mol
         virtual dimensioned<scalar> W(label index)
         {
@@ -220,7 +265,7 @@ public:
             return H_tot_;
         };
 
-
+       
 };
 
 

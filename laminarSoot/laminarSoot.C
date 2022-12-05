@@ -31,7 +31,83 @@ License
 #include "localEulerDdtScheme.H"
 #include "IFstream.H"
 
+
+// Static data
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::Av_ =     
+    Foam::dimensionedScalar(
+        "Av",
+        Foam::dimensionSet(0,0,0,0,-1,0,0),
+        scalar(6.0221409e+23)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::kB_ =     
+    Foam::dimensionedScalar(
+        "kB",
+        Foam::dimensionSet(1,2,-2,-1,0,0,0),
+        scalar(1.38064852e-23)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::Ru_ =     
+    Foam::dimensionedScalar(
+        "Ru_",
+        Foam::dimensionSet(1,2,-2,-1,-1,0,0),
+        scalar(8.314462618)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::rho_soot_ =     
+    Foam::dimensionedScalar(
+        "rho_soot_",
+        Foam::dimensionSet(1,-3,0,0,0,0,0),
+        scalar(1800.0)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::W_carbon_ =     
+    Foam::dimensionedScalar(
+        "W_carbon",
+        Foam::dimensionSet(1,0,0,0,-1,0,0),
+        scalar(0.012)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::W_hydrogen_ =     
+    Foam::dimensionedScalar(
+        "W_hydrogen_",
+        Foam::dimensionSet(1,0,0,0,-1,0,0),
+        scalar(0.001)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::C_min_ =     
+    Foam::dimensionedScalar(
+        "C_min",
+        Foam::dimensionSet(0,0,0,0,0,0,0),
+        scalar(378)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::H_min_ =     
+    Foam::dimensionedScalar(
+        "H_min_",
+        Foam::dimensionSet(0,0,0,0,0,0,0),
+        scalar(378)
+    );
+
+template<class ReactionThermo> const Foam::dimensionedScalar 
+Foam::combustionModels::laminarSoot<ReactionThermo>::PAH_rho_const_ =     
+    Foam::dimensionedScalar(
+        "PAH_rho_const_",
+        Foam::dimensionSet(0,-3,0,0,1,0,0),
+        scalar(171943.5197)
+    );
+
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
+
+
 
 template<class ReactionThermo>
 Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
@@ -117,7 +193,68 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
             IOobject::AUTO_WRITE
         ),
         this->mesh()
+    ),
+    n_p_
+    (
+        IOobject
+        (
+            "n_p",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(),dimensionedScalar("n_p", dimensionSet(0,0,0,0,0,0,0),1.0)
+    ),
+    d_p_
+    (
+        IOobject
+        (
+            "d_p",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(),dimensionedScalar("d_p", dimensionSet(0,1,0,0,0,0,0), 2.0e-9)
+    ),
+    d_m_
+    (
+        IOobject
+        (
+            "d_m",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(),dimensionedScalar("d_m", dimensionSet(0,1,0,0,0,0,0), 2.0e-9)
+    ),
+    d_g_
+    (
+        IOobject
+        (
+            "d_g",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(),dimensionedScalar("d_g", dimensionSet(0,1,0,0,0,0,0), 2.0e-9)
+    ),
+    A_tot_
+    (
+        IOobject
+        (
+            "A_tot",
+            this->mesh().time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(),dimensionedScalar("A_tot", dimensionSet(-1,2,0,0,0,0,0), 2.0e-9)
     )
+
 {
 
     if (integrateReactionRate_)
@@ -187,6 +324,7 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::correct()
         {
             this->chemistryPtr_->calculate();
         }
+        updateMorphology();
     }
 }
 
@@ -372,6 +510,47 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
         );
         Info << speciesList_[i] << " is found!" << endl;
     }
+}
+
+
+// Updating morphology
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::updateMorphology()
+{
+    // number of primary particles
+    n_p_ = N_pri() / N_agg();
+    n_p_.max(1.0);
+    if (!coagulation_enabled_)
+    {
+        Info<< "enforcing n_p = 1\n" << endl;
+        n_p_.min(1.00000001);
+    }
+
+    // Total volume of soot per kg of gas
+    volScalarField V_tot(C_tot() * W_carbon_ / rho_soot_);
+    // Volume of each primary particles
+    volScalarField V_p(V_tot / (N_pri() * Av_));
+    // Volume of each agglomerate
+    volScalarField V_agg(V_tot / (N_agg() * Av_));
+    // Mass of agglomerate
+    volScalarField m_agg(V_agg * rho_soot_); 
+
+    // Primary particle diameter
+    d_p_ = pow(6.0 * V_p / (pi_), 1.0/3.0);
+
+    // Surface area of each primary particle
+    volScalarField A_p(pi_ * d_p_ * d_p_);
+
+    // Total surface area
+    A_tot_ = N_pri() * Av_ * A_p;
+
+    //  Mobility diameter
+    d_m_ = d_p_ * pow(n_p_, 0.45);
+
+    // Gyration Diameter
+    volScalarField n_p_lowerlimit (n_p_*0.0+1.5);
+    d_g_ = (n_p_ <= n_p_lowerlimit) * (d_m_ / 1.29) + (n_p_ > n_p_lowerlimit) * (d_m_ / (pow(n_p_, -0.2)+0.4));
+
 }
 
 
