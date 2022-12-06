@@ -215,6 +215,8 @@ public:
         
         virtual void updateCoagulation();
 
+        virtual void updateSoot();
+
         // Return Molecular Weight in kg/mol
         virtual dimensioned<scalar> W(label index)
         {
@@ -552,7 +554,6 @@ public:
 
         //---------------------------------------------------------------------------------------------
         // PAH Adsorption Rate
-
         virtual tmp<volScalarField> PAHAdsorptionRate(label id)
         {
 
@@ -623,7 +624,27 @@ public:
         }
 
         //---------------------------------------------------------------------------------------------
-        // Coagulation
+        // Diffusion
+        virtual tmp<volScalarField> diffusionCoeff()
+        {
+            volScalarField mu (this->thermo().mu());
+            const volScalarField& T = this->thermo().T();
+            volScalarField f_gas_particle
+            (
+                3.0 * pi_ * mu * d_m_ /
+                ( 1.0 + 2.0 * lambda_gas() / d_m_ *(1.21 + 0.4*exp(-0.78*d_m_/lambda_gas())))
+            );
+
+            f_gas_particle.max(1e-20);
+            
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    kB_ * T / f_gas_particle
+                )
+            );
+        }
 
 };
 

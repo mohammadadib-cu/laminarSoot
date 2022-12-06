@@ -30,6 +30,7 @@ License
 #include "fvmSup.H"
 #include "localEulerDdtScheme.H"
 #include "IFstream.H"
+#include "fvOptions.H"
 
 
 // Static data
@@ -406,6 +407,11 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::correct()
             this->chemistryPtr_->calculate();
         }
         updateMorphology();
+        updateInception();
+        updateGrowth();
+        updateOxidation();
+        updateCoagulation();
+
     }
 }
 
@@ -703,6 +709,89 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateCoagulation()
     // Coagulation source term
     if (HACA_oxidation_enabled_){
         S_coag_N_agg_ = 0.5 * 1.8 * beta_fm * beta_cont / (beta_fm + beta_cont) * N_agg() * N_agg() * Av_ * rho;   
+    }
+}
+
+// Updating coagulation source terms
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::updateSoot()
+{
+    const surfaceScalarField& phi = this->turb_.phi();
+    const volScalarField D(diffusionCoeff());
+    volScalarField rho (this->thermo().rho());
+    fv::options& fvOptions(fv::options::New(this->mesh_));
+
+    // N_agg Equation
+    {
+        Info<< "N_agg Equation \n" << endl;
+        tmp<fvScalarMatrix> N_aggEqn
+        (
+            fvm::ddt(rho, N_agg_)
+            + fvm::div(phi, N_agg_)
+            - fvm::laplacian(D*rho, N_agg_)
+        ==
+            - fvm::Sp(rho * S_coag_N_agg_ /N_agg_, N_agg_)
+            + rho * S_inc_N_
+        );
+
+        N_aggEqn.ref().relax();
+        fvOptions.constrain(N_aggEqn.ref());
+        solve(N_aggEqn);
+        fvOptions.correct(N_agg_);
+    }
+
+    // N_pri Equation
+    {
+        Info<< "N_pri Equation \n" << endl;
+        tmp<fvScalarMatrix> N_priEqn
+        (
+            fvm::ddt(rho, N_pri_)
+            + fvm::div(phi, N_pri_)
+            - fvm::laplacian(D*rho, N_pri_)
+        ==
+            rho * S_inc_N_
+        );
+
+        N_priEqn.ref().relax();
+        fvOptions.constrain(N_priEqn.ref());
+        solve(N_priEqn);
+        fvOptions.correct(N_pri_);
+    }
+
+    // C_tot Equation
+    {
+        Info<< "C_tot Equation \n" << endl;
+        tmp<fvScalarMatrix> C_totEqn
+        (
+            fvm::ddt(rho, C_tot_)
+            + fvm::div(phi, C_tot_)
+            - fvm::laplacian(D*rho, C_tot_)
+        ==
+            rho * (S_inc_C_tot_ + S_grow_C_tot_ + S_ox_C_tot_)
+        );
+
+        C_totEqn.ref().relax();
+        fvOptions.constrain(C_totEqn.ref());
+        solve(C_totEqn);
+        fvOptions.correct(C_tot_);
+    }
+
+    // H_tot Equation
+    {
+        Info<< "H_tot Equation \n" << endl;
+        tmp<fvScalarMatrix> H_totEqn
+        (
+            fvm::ddt(rho, H_tot_)
+            + fvm::div(phi, H_tot_)
+            - fvm::laplacian(D*rho, H_tot_)
+        ==
+            rho * (S_inc_H_tot_ + S_grow_H_tot_)
+        );
+
+        H_totEqn.ref().relax();
+        fvOptions.constrain(H_totEqn.ref());
+        solve(H_totEqn);
+        fvOptions.correct(H_tot_);
     }
 }
 
