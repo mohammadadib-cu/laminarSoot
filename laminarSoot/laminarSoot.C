@@ -604,19 +604,22 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateMorphology()
         n_p_.min(1.00000001);
     }
     // Total volume of soot per kg of gas
-    volScalarField V_tot(C_tot() * W_carbon_ / rho_soot_);
+    // volScalarField V_tot(C_tot() * W_carbon_ / rho_soot_);
     // Volume of each primary particles
-    volScalarField V_p(V_tot / (N_pri() * Av_));
-    // Volume of each agglomerate
-    volScalarField V_agg(V_tot / (N_agg() * Av_));
-    // Mass of agglomerate
-    volScalarField m_agg(V_agg * rho_soot_); 
+    // volScalarField V_p(V_tot / (N_pri() * Av_));
     // Primary particle diameter
-    d_p_ = pow(6.0 * V_p / (pi_), 1.0/3.0);
+    // d_p_ = pow(6.0 * V_p / (pi_), 1.0/3.0);
+    d_p_ = pow(
+        (6.0 * pi_)*
+        (C_tot() * W_carbon_) / rho_soot_ /
+        (N_pri() * Av_)
+        ,1.0/3.0
+    );
     // Surface area of each primary particle
-    volScalarField A_p(pi_ * d_p_ * d_p_);
+    // volScalarField A_p(pi_ * d_p_ * d_p_);
     // Total surface area
-    A_tot_ = N_pri() * Av_ * A_p;
+    // A_tot_ = N_pri() * Av_ * A_p;
+    A_tot_ = N_pri() * Av_ * pi_ * d_p_ * d_p_;
     //  Mobility diameter
     d_m_ = d_p_ * pow(n_p_, 0.45);
     // Gyration Diameter
@@ -659,83 +662,22 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateGrowth()
 
     if (HACA_growth_enabled_)
     {
-        // // Species indicies
-        // label H_i = speciesIndicies_["H"];
-        // label OH_i S_ox_C_tot_= speciesIndicies_["OH"];
-        // label H2_i = speciesIndicies_["H2"];
-        // label H2O_i = speciesIndicies_["H2O"];
-        // label C2H2_i = speciesIndicies_["C2H2"];
-        // label O2_i = speciesIndicies_["O2"];
-        
-        // const volScalarField& T = this->thermo().T();
-
-        // dimensionedScalar oneKelvin(dimTemperature, scalar(1.0));
-        // dimensionedScalar k_unit(dimensionSet(0,3,-1,0,-1,0,0), scalar(1.0));
-
-        // // Forward Reaction Rates
-        // // Units : m3/mol-s
-        // volScalarField k_1(k_unit * 4.17e7 * exp(oneKelvin * (-6542.52) / T));
-        // volScalarField k_2(k_unit * 1.00e4 * pow(T/oneKelvin, 0.734) * exp(oneKelvin * (-719.68) / T));
-        // volScalarField k_3(k_unit * 2.00e7 * pow(T/oneKelvin, 0.0));
-        // volScalarField k_4(k_unit * 8.00e1 * pow(T/oneKelvin, 1.56) * exp(oneKelvin * (-1912.43) / T));
-        // volScalarField k_5(k_unit * 2.20e6 * exp(oneKelvin * (-3774.53) / T));
-        // volScalarField k_6(k_unit * 0.13e0 * pow(T/oneKelvin, 0.0));
-
-        // // Reverse Reaction Rates
-        // // Units : m3/mol-s
-        // volScalarField k_r_1(k_unit * 3.9e6 * exp(oneKelvin * (-5535.98) / T));
-        // volScalarField k_r_2(k_unit * 3.68e2 * pow(T/oneKelvin, 1.139) * exp(oneKelvin * (-8605.94) / T));
-
-        // // chi_soot_0
-        // dimensionedScalar chi_soot_0_denum_limit("chi_soot_0_denum_limit",dimless/dimTemperature, scalar(1e-20));
-        // volScalarField chi_soot_0_denum
-        // (
-        //     max 
-        //     (
-        //         k_r_1 * C(H2_i) + k_r_2 * C(H2O_i) + k_3 * C(H_i) + k_4 * C(C2H2_i) + k_5 * C(O2_i) + k_1 * C(H_i) + k_2 * C(OH_i),
-        //         chi_soot_0_denum_limit
-        //     )
-        // );
-
-        // dimensionedScalar chi_soot_CH(dimensionSet(0,-2,0,0,0,0,0), scalar(2.3e19));
-        // volScalarField chi_soot_0
-        // (
-        //     (k_1 * C(H_i) + k_2 * C(OH_i)) / chi_soot_0_denum * chi_soot_CH   
-        // );
-
-        // // C_soot_0
-        // volScalarField C_soot_0
-        // (
-        //     A_tot_ / Av_ * chi_soot_0
-        // );
-
-        // alpha - surface reactivity
-        // volScalarField alpha
-        // (
-        //     tanh
-        //     (
-        //         (12.56 - 0.00563 * T / oneKelvin) / log10 ( rho_soot_ * pi_ / 6.0 * pow(d_p_, 3.0) * Av_ / W_carbon_ ) - 
-        //         1.38 + 0.00068 * T / oneKelvin
-        //     )
-        // );
-
-        // alpha.max(0.0);
-        // alpha.min(1.0);
-
-
-        // if (HACA_growth_enabled_){
         S_grow_C_tot_ += HACAGrowthRate();
         S_grow_H_tot_ += HACAGrowthRate() * (0.25 / 2.00);
-        // }
-
-        // if (HACA_oxidation_enabled_){
-        //     S_grow_C_tot_ += -2 * alpha * k_5 * C(O2_i) * C_soot_0 - k_6 * C(OH_i) * N_agg();
-        // }
+    }
+    if (PAH_growth_enabled_)
+    {
+        forAll(PAH_names_, id)
+        {
+            volScalarField PAHAdsorptionRateField(PAHAdsorptionRate(id));
+            S_grow_C_tot_ += PAH_n_C_[id] * PAHAdsorptionRateField/ this->thermo().rho();
+            S_grow_H_tot_ += (PAH_n_H_[id] - 2) * PAHAdsorptionRateField / this->thermo().rho();
+        }
     }
 
 }
 
-// Updating growth source terms
+// Updating oxidation source terms
 template<class ReactionThermo>
 void Foam::combustionModels::laminarSoot<ReactionThermo>::updateOxidation()
 {
@@ -745,6 +687,24 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateOxidation()
     }
 }
 
+// Updating coagulation source terms
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::updateCoagulation()
+{
+    const volScalarField& T = this->thermo().T();
+    volScalarField mu (this->thermo().mu());
+    volScalarField rho (this->thermo().rho());
+    // Free Molecule
+    volScalarField beta_fm(4 * pow(pi_ * kB_ * this->thermo().T() / (V_agg() * rho_soot_), 0.5) * d_g_ * d_g_);
+    // Continuum
+    volScalarField beta_cont(
+        (8 * kB_ / (3 * mu)) * T * ( 1.0 + (2.0 * lambda_gas() / d_m_ )*(1.21 + 0.4*exp(-0.78*d_m_/lambda_gas())))
+    );
+    // Coagulation source term
+    if (HACA_oxidation_enabled_){
+        S_coag_N_agg_ = 0.5 * 1.8 * beta_fm * beta_cont / (beta_fm + beta_cont) * N_agg() * N_agg() * Av_ * rho;   
+    }
+}
 
 
 // ************************************************************************* //

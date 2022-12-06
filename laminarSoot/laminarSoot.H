@@ -212,6 +212,8 @@ public:
         virtual void updateGrowth();
 
         virtual void updateOxidation();
+        
+        virtual void updateCoagulation();
 
         // Return Molecular Weight in kg/mol
         virtual dimensioned<scalar> W(label index)
@@ -261,6 +263,44 @@ public:
         {
             return H_tot_;
         };
+        //---------------------------------------------------------------------------------------------
+        // Gas properties
+        //- Returns mean free path of gas
+        virtual tmp<volScalarField> lambda_gas() const
+        {
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    this->thermo().mu() / this->thermo().rho() * pow(pi_ * this->thermo().W() / (2.0* kB_ * Av_ * this->thermo().T()), 0.5)
+                )
+            );
+        };
+
+        //---------------------------------------------------------------------------------------------
+        // Morphology
+        //- Returns volume of each agglomerate 
+        virtual tmp<volScalarField> V_agg()
+        {
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    C_tot() * W_carbon_ / (rho_soot_ * N_agg() * Av_)
+                )
+            );
+        }; 
+        //- Returns mass of each agglomerate 
+        virtual tmp<volScalarField> m_agg()
+        {
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    C_tot() * W_carbon_ / (N_agg() * Av_)
+                )
+            );
+        };   
 
         //---------------------------------------------------------------------------------------------
         // PAH Characteristics
@@ -510,9 +550,81 @@ public:
         }
 
 
+        //---------------------------------------------------------------------------------------------
+        // PAH Adsorption Rate
 
+        virtual tmp<volScalarField> PAHAdsorptionRate(label id)
+        {
 
-       
+            // PAH Index and Id
+            label index = PAH_indicies_[id];
+            // Temperature
+            const volScalarField& T = this->thermo().T();
+            // Viscosity of gas
+            volScalarField mu = this->thermo().mu();
+            // beta fm coag PAH-soot
+            volScalarField beta_fm_soot_PAH
+            (
+                2.2 * pow(pi_ * kB_ * T / 2.0 * (1.0/m_agg() + 1.0/m_PAH(id)), 0.5) * pow(d_g_ + d_PAH(id), 2.0)
+            );
+            // beta cont coag PAH-soot
+            volScalarField C_s_soot_d_m
+            (
+                1.0 + (2.0 * lambda_gas() / d_m_ ) * (1.21 + 0.4*exp(-0.78 * d_m_ / lambda_gas()))
+            );
+            volScalarField C_s_soot_d_PAH
+            (
+                1.0 + (2.0 * lambda_gas() / d_PAH(id)) * (1.21 + 0.4*exp(-0.78 * d_PAH(id) / lambda_gas()))
+            );
+            volScalarField beta_cont_soot_PAH
+            (
+                2 * kB_ * T / (3 * mu) * (C_s_soot_d_m / d_g_ + C_s_soot_d_PAH / d_PAH(id)) * (d_g_ + d_PAH(id))
+            );
+            // Forward reaction rate
+            volScalarField k_FWD_soot_PAH
+            (
+                beta_fm_soot_PAH * beta_cont_soot_PAH / (beta_fm_soot_PAH + beta_cont_soot_PAH) * Av_
+            );
+            // W reduced
+            // Constants
+            dimensionedScalar a_k_REV_soot_PAH(dimensionSet(0,0,0,0,0,0,0),  scalar(0.115));
+            dimensionedScalar b_k_REV_soot_PAH(dimensionSet(0,0,0,0,0,0,0),  scalar(0.18));
+            dimensionedScalar c_k_REV_soot_PAH(dimensionSet(0,2,-2,0,0,0,0), scalar(970688.0));
+            dimensionedScalar d_k_REV_soot_PAH(dimensionSet(1,2,-2,0,-1,0,0),scalar(34069.0));
+            // W soot
+            volScalarField W_soot(C_tot() * W_carbon_ / N_agg());
+            volScalarField epsilon_soot_PAH
+            (
+                c_k_REV_soot_PAH * (W(index) * W_soot) / (W(index) + W_soot) - d_k_REV_soot_PAH
+            );
+            // The reverse rate of physical dimerization
+            volScalarField k_REV_soot_PAH
+            (
+                k_FWD_soot_PAH * pow(10.0, -b_k_REV_soot_PAH) * exp(-a_k_REV_soot_PAH * epsilon_soot_PAH * 2.3025851/(Ru_ * T))
+            );
+
+            // Chemical adsorption rate
+            dimensionedScalar Ea_k_REAC_soot_PAH(dimensionSet(1,2,-2,0,-1,0,0), scalar(209631.0));
+            dimensionedScalar A_k_REAC_soot_PAH(dimensionSet(0,3,-1,0,-1,0,0), scalar(1.0e10));
+            volScalarField k_REAC_soot_PAH
+            (
+                A_k_REAC_soot_PAH * exp(-Ea_k_REAC_soot_PAH / (Ru_ * T))
+            );
+            // Soot concentration
+            // volScalarField C_soot(N_agg * rho);
+            // k_REAC_soot_PAH * k_FWD_soot_PAH * C(index) * (N_agg * rho) / (k_REAC_soot_PAH + k_REV_soot_PAH)
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    k_REAC_soot_PAH * k_FWD_soot_PAH * C(index) * (N_agg() * this->thermo().rho()) / (k_REAC_soot_PAH + k_REV_soot_PAH)
+                )
+            );
+        }
+
+        //---------------------------------------------------------------------------------------------
+        // Coagulation
+
 };
 
 
