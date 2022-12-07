@@ -146,6 +146,7 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     HACA_oxidation_enabled_(true),
     PAH_growth_enabled_(true),
     coagulation_enabled_(true),
+    scrubbing_enabled_(true),
     N_agg_
     (
         IOobject
@@ -336,6 +337,17 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
             IOobject::AUTO_WRITE
         ),
         this->mesh(), dimensionedScalar("S_coag_N_agg", dimensionSet(-1,0,-1,0,1,0,0),1.0e-30 )
+    ),
+    PAH_names_
+    (
+        sootProps_.lookup("PAHs")
+    ),
+    speciesList_
+    (
+        PAH_names_.size() + 7
+    ),
+    SR_(
+        speciesList_.size()
     )
 {
 
@@ -348,7 +360,39 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
         Info<< "    using instantaneous reaction rate" << endl;
     }
 
-    speciesList_ = {"H", "H2", "OH", "H2O", "C2H2", "O2", "CO"};
+    wordList HACASpeciesList_ = {"H", "H2", "OH", "H2O", "C2H2", "O2", "CO"};
+    
+    forAll(PAH_names_,i){
+        speciesList_[i] = PAH_names_[i];
+    }
+    forAll(HACASpeciesList_,i){
+        label spid = i + PAH_names_.size();
+        speciesList_[spid]= HACASpeciesList_[i];
+    }
+    Info << "List of species: " << speciesList_ << endl;
+
+    // Create the fields for the chemistry sources
+    forAll(SR_, fieldi)
+    {
+        SR_.set
+        (
+            fieldi,
+            new volScalarField::Internal
+            (
+                IOobject
+                (
+                    "SR." + speciesList_[fieldi],
+                    this->mesh().time().timeName(),
+                    this->mesh(),
+                    IOobject::NO_READ,
+                    IOobject::NO_WRITE
+                ),
+                this->mesh(),
+                dimensionedScalar(dimMass/dimVolume/dimTime, Zero)
+            )
+        );
+    }
+
     findIndicies();
     readPAHs();
     buildDimers();
@@ -392,7 +436,6 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::correct()
                         min(1.0/rDeltaT, maxTime)()
                     );
                 }
-                else
                 {
                     this->chemistryPtr_->solve((1.0/rDeltaT)());
                 }
@@ -406,12 +449,13 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::correct()
         {
             this->chemistryPtr_->calculate();
         }
+        resetSR();
         updateMorphology();
         updateInception();
         updateGrowth();
         updateOxidation();
         updateCoagulation();
-
+        updateSoot();
     }
 }
 
@@ -430,6 +474,14 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::R(volScalarField& Y) const
             this->thermo().composition().species()[Y.member()];
 
         Su += this->chemistryPtr_->RR(specieI);
+
+        if (scrubbing_enabled_){
+            if (speciesList_.found(Y.member()))
+            {
+                label spid = speciesIds_[Y.member()];
+                Su += SR_[spid];
+            }
+        }
     }
 
     return tSu;
@@ -485,7 +537,8 @@ bool Foam::combustionModels::laminarSoot<ReactionThermo>::read()
 template<class ReactionThermo>
 bool Foam::combustionModels::laminarSoot<ReactionThermo>::readPAHs()
 {
-    sootProps_.readEntry("PAHs", PAH_names_);
+    Info << "PAH names: " << PAH_names_ << endl;
+    // sootProps_.readEntry("PAHs", PAH_names_);
     PAH_n_C_.resize(PAH_names_.size());
     PAH_n_H_.resize(PAH_names_.size());
     PAH_indicies_.resize(PAH_names_.size());
@@ -592,7 +645,12 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
             speciesList_[i],
             specieIndex
         );
-        Info << speciesList_[i] << " is found!" << endl;
+        speciesIds_.insert
+        (
+            speciesList_[i],
+            i
+        );
+        Info << speciesList_[i] << " is found! Index= " << speciesIndicies_[speciesList_[i]] << " hashKeyIndex: " << speciesIds_(speciesList_[i]) << endl;
     }
 }
 
@@ -655,6 +713,23 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateInception()
             S_inc_C_tot_ += dimer_n_C_[i] * dimerROPField / rho;
             // H_tot Source Term
             S_inc_H_tot_ += dimer_n_H_[i] * dimerROPField / rho;
+
+            if (scrubbing_enabled_){
+                // PAHs
+                // species id
+                label spid1 = speciesIds_[PAH_names_[id1]];
+                label spid2 = speciesIds_[PAH_names_[id2]];
+                // species index
+                label spindex1 = speciesIndicies_[PAH_names_[id1]];
+                label spindex2 = speciesIndicies_[PAH_names_[id2]];       
+                SR_[spid1] -= dimerROPField * W(spindex1);
+                SR_[spid2] -= dimerROPField * W(spindex2);
+
+                // H2
+                label H2_id = speciesIds_["H2"];
+                label H2_index = speciesIndicies_["H2"];     
+                SR_[H2_id] += dimerROPField * W(H2_index);
+            }
         }
     }
 }
@@ -668,16 +743,45 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateGrowth()
 
     if (HACA_growth_enabled_)
     {
-        S_grow_C_tot_ += HACAGrowthRate();
-        S_grow_H_tot_ += HACAGrowthRate() * (0.25 / 2.00);
+        volScalarField rho = this->thermo().rho();
+        volScalarField HACAGrowthRateField(HACAGrowthRate());
+        S_grow_C_tot_ += 2 * HACAGrowthRateField / rho;
+        S_grow_H_tot_ += 2 * HACAGrowthRateField * (0.25 / 2.00) / rho;
+
+        if (scrubbing_enabled_){
+            // C2H2
+            label C2H2_id = speciesIds_["C2H2"];
+            label C2H2_index = speciesIndicies_["C2H2"];             
+            SR_[C2H2_id] -= HACAGrowthRateField * W(C2H2_index);
+
+            // H
+            label H_id = speciesIds_["H"];
+            label H_index = speciesIndicies_["H"];             
+            SR_[H_id] += HACAGrowthRateField * W(H_index) * (1.75 / 2.00);
+        }
     }
     if (PAH_growth_enabled_)
     {
+        volScalarField rho = this->thermo().rho();
         forAll(PAH_names_, id)
         {
             volScalarField PAHAdsorptionRateField(PAHAdsorptionRate(id));
-            S_grow_C_tot_ += PAH_n_C_[id] * PAHAdsorptionRateField/ this->thermo().rho();
-            S_grow_H_tot_ += (PAH_n_H_[id] - 2) * PAHAdsorptionRateField / this->thermo().rho();
+            S_grow_C_tot_ += PAH_n_C_[id] * PAHAdsorptionRateField / rho;
+            S_grow_H_tot_ += (PAH_n_H_[id] - 2) * PAHAdsorptionRateField / rho;
+
+            if (scrubbing_enabled_){
+                // PAH
+                // species id
+                label spid = speciesIds_[PAH_names_[id]];
+                // species index
+                label spindex = speciesIndicies_[PAH_names_[id]];   
+                SR_[spid] -= PAHAdsorptionRateField * W(spindex);
+
+                // H
+                label H_id = speciesIds_["H"];
+                label H_index = speciesIndicies_["H"];             
+                SR_[H_id] += PAHAdsorptionRateField * W(H_index) * 2;
+            }
         }
     }
 
@@ -689,7 +793,27 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateOxidation()
 {
     S_ox_C_tot_ *= 0.0;
     if (HACA_oxidation_enabled_){
-        S_ox_C_tot_ += HACAOxidationRate();
+        volScalarField rho(this->thermo().rho());
+        volScalarField HACAO2OxidationRateField(HACAO2OxidationRate());
+        volScalarField HACAOHOxidationRateField(HACAOHOxidationRate());
+        S_ox_C_tot_ += -1 * (HACAO2OxidationRateField + HACAOHOxidationRateField) / rho;
+
+        if (scrubbing_enabled_){
+            // O2
+            label O2_id = speciesIds_["O2"];
+            label O2_index = speciesIndicies_["O2"];     
+            SR_[O2_id] -= 0.5 * HACAO2OxidationRateField * W(O2_index);
+
+            // CO2
+            label CO_id = speciesIds_["CO"];
+            label CO_index = speciesIndicies_["CO"];     
+            SR_[CO_id] += (HACAO2OxidationRateField + HACAOHOxidationRateField) * W(CO_index);
+
+            // OH
+            label OH_id = speciesIds_["OH"];
+            label OH_index = speciesIndicies_["OH"];     
+            SR_[OH_id] -= HACAOHOxidationRateField * W(OH_index);
+        }
     }
 }
 
@@ -707,8 +831,21 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateCoagulation()
         (8 * kB_ / (3 * mu)) * T * ( 1.0 + (2.0 * lambda_gas() / d_m_ )*(1.21 + 0.4*exp(-0.78*d_m_/lambda_gas())))
     );
     // Coagulation source term
-    if (HACA_oxidation_enabled_){
-        S_coag_N_agg_ = 0.5 * 1.8 * beta_fm * beta_cont / (beta_fm + beta_cont) * N_agg() * N_agg() * Av_ * rho;   
+    if (coagulation_enabled_){
+        S_coag_N_agg_ = 0.5 * 1.82 * beta_fm * beta_cont / (beta_fm + beta_cont) * N_agg() * N_agg() * Av_ * rho;   
+    }
+}
+
+// Updating coagulation source terms
+template<class ReactionThermo>
+void Foam::combustionModels::laminarSoot<ReactionThermo>::resetSR()
+{
+    if (scrubbing_enabled_){
+        forAll(SR_, fieldi){
+            forAll(SR_[fieldi], celli){
+                SR_[fieldi][celli] = 0.0;
+            }
+        }
     }
 }
 
@@ -716,7 +853,7 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateCoagulation()
 template<class ReactionThermo>
 void Foam::combustionModels::laminarSoot<ReactionThermo>::updateSoot()
 {
-    const surfaceScalarField& phi = this->turb_.phi();
+    const surfaceScalarField& phi = this->phi();
     const volScalarField D(diffusionCoeff());
     volScalarField rho (this->thermo().rho());
     fv::options& fvOptions(fv::options::New(this->mesh_));

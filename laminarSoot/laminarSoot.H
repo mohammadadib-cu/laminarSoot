@@ -98,6 +98,8 @@ protected:
     bool PAH_growth_enabled_ ;
     // Coagulation flag
     bool coagulation_enabled_;
+    // Gas scrubbing flag
+    bool scrubbing_enabled_;
 
     // Soot tracked fields
     volScalarField N_agg_;
@@ -126,13 +128,16 @@ protected:
     // Coagulation
     volScalarField S_coag_N_agg_;
 
-    // Species List
-    wordList speciesList_;
-    // Species Indicies
-    HashTable<label> speciesIndicies_;
-
     // Precursor PAH Info
     wordList PAH_names_;
+    // Species List
+    wordList speciesList_;
+    // Scrubbing rates
+    PtrList<volScalarField::Internal> SR_;
+    // Species Indicies
+    HashTable<label> speciesIndicies_;
+    HashTable<label> speciesIds_;
+
     labelList PAH_n_C_;
     labelList PAH_n_H_;
     labelList PAH_indicies_;
@@ -216,6 +221,8 @@ public:
         virtual void updateCoagulation();
 
         virtual void updateSoot();
+
+        virtual void resetSR();
 
         // Return Molecular Weight in kg/mol
         virtual dimensioned<scalar> W(label index)
@@ -453,6 +460,7 @@ public:
             label O2_i = speciesIndicies_["O2"];
             
             const volScalarField& T = this->thermo().T();
+            volScalarField rho (this->thermo().rho());
 
             dimensionedScalar oneKelvin(dimTemperature, scalar(1.0));
             dimensionedScalar k_unit(dimensionSet(0,3,-1,0,-1,0,0), scalar(1.0));
@@ -472,7 +480,7 @@ public:
             volScalarField k_r_2(k_unit * 3.68e2 * pow(T/oneKelvin, 1.139) * exp(oneKelvin * (-8605.94) / T));
 
             // chi_soot_0
-            dimensionedScalar chi_soot_0_denum_limit("chi_soot_0_denum_limit",dimless/dimTemperature, scalar(1e-20));
+            dimensionedScalar chi_soot_0_denum_limit("chi_soot_0_denum_limit",dimless/dimTime, scalar(1e-20));
             volScalarField chi_soot_0_denum
             (
                 max 
@@ -483,18 +491,20 @@ public:
             );
 
             dimensionedScalar chi_soot_CH(dimensionSet(0,-2,0,0,0,0,0), scalar(2.3e19));
+            // 
             volScalarField chi_soot_0
             (
-                (k_1 * C(H_i) + k_2 * C(OH_i)) / chi_soot_0_denum * chi_soot_CH   
+                (k_1 * C(H_i) + k_2 * C(OH_i)) / chi_soot_0_denum * chi_soot_CH 
             );
 
             // C_soot_0
+            // unit: mol/m3
             return tmp<volScalarField>
             (
                 new volScalarField
                 (
                     "C_soot_0",
-                    (A_tot_ / Av_ * chi_soot_0)
+                    (A_tot_ / Av_ * chi_soot_0) * rho
                 )
             );
         }
@@ -533,20 +543,33 @@ public:
             (
                 new volScalarField
                 (
-                    2 * alpha() * k_4_HACA() * C(C2H2_i) * C_soot_0()
+                    alpha() * k_4_HACA() * C(C2H2_i) * C_soot_0()
                 )
             );
         }
 
-        virtual tmp<volScalarField> HACAOxidationRate()
+        virtual tmp<volScalarField> HACAO2OxidationRate()
         {
-            label OH_i = speciesIndicies_["OH"];
             label O2_i = speciesIndicies_["O2"];
+            volScalarField rho (this->thermo().rho());
             return tmp<volScalarField>
             (
                 new volScalarField
                 (
-                    -2 * alpha() * k_5_HACA() * C(O2_i) * C_soot_0() - k_6_HACA() * C(OH_i) * N_agg()
+                    2 * alpha() * k_5_HACA() * C(O2_i) * C_soot_0()             
+                )
+            );
+        }
+
+        virtual tmp<volScalarField> HACAOHOxidationRate()
+        {
+            label OH_i = speciesIndicies_["OH"];
+            volScalarField rho (this->thermo().rho());
+            return tmp<volScalarField>
+            (
+                new volScalarField
+                (
+                    k_6_HACA() * C(OH_i) * N_agg() * rho               
                 )
             );
         }
