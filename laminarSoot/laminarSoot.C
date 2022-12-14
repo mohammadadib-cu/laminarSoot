@@ -71,7 +71,7 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::W_carbon_ =
     Foam::dimensionedScalar(
         "W_carbon",
         Foam::dimensionSet(1,0,0,0,-1,0,0),
-        scalar(0.012)
+        scalar(12.011e-3)
     );
 
 template<class ReactionThermo> const Foam::dimensionedScalar 
@@ -79,7 +79,7 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::W_hydrogen_ =
     Foam::dimensionedScalar(
         "W_hydrogen_",
         Foam::dimensionSet(1,0,0,0,-1,0,0),
-        scalar(0.001)
+        scalar(1.00784e-3)
     );
 
 template<class ReactionThermo> const Foam::dimensionedScalar 
@@ -141,12 +141,12 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
             IOobject::NO_WRITE
         )
     ),
-    inception_enabled_(true),
-    HACA_growth_enabled_(true),
-    HACA_oxidation_enabled_(true),
-    PAH_growth_enabled_(true),
-    coagulation_enabled_(true),
-    scrubbing_enabled_(true),
+    inception_enabled_(sootProps_.getOrDefault("inception_enabled", true)),
+    HACA_growth_enabled_(sootProps_.getOrDefault("HACA_growth_enabled", true)),
+    HACA_oxidation_enabled_(sootProps_.getOrDefault("HACA_oxidation_enabled", true)),
+    PAH_growth_enabled_(sootProps_.getOrDefault("PAH_growth_enabled", true)),
+    coagulation_enabled_(sootProps_.getOrDefault("coagulation_enabled", true)),
+    scrubbing_enabled_(sootProps_.getOrDefault("scrubbing_enabled", true)),
     N_agg_
     (
         IOobject
@@ -393,9 +393,9 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
         );
     }
 
-    findIndicies();
-    readPAHs();
-    buildDimers();
+    createPAHProps();
+    createDimerProps();
+    createSpeciesProps();
 }
 
 
@@ -512,7 +512,33 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::Qdot() const
 
     if (this->active())
     {
-        tQdot.ref() = this->chemistryPtr_->Qdot();
+        if (scrubbing_enabled_){
+
+            scalarField& Qdot = tQdot.ref();
+            
+            // basicSpecieMixture& composition = this->thermo().composition();
+            // PtrList<volScalarField>& Y = this->thermo().composition().Y();
+            forAll(this->thermo().composition().Y(), i)
+            {
+                if (speciesList_.found(this->thermo().composition().Y()[i].member()))
+                {
+                    label spid = speciesIds_[this->thermo().composition().Y()[i].member()];
+                    forAll(Qdot, celli)
+                    {
+                        const scalar hi = this->thermo().composition().Hc(i);
+                        Qdot[celli] -= hi*(this->chemistryPtr_->RR(i)[celli]+SR_[spid][celli]);
+                    }
+                }else{
+                    forAll(Qdot, celli)
+                    {
+                        const scalar hi = this->thermo().composition().Hc(i);
+                        Qdot[celli] -= hi*this->chemistryPtr_->RR(i)[celli];
+                    }
+                }
+            }
+        }else{
+            tQdot.ref() = this->chemistryPtr_->Qdot();
+        } 
     }
 
     return tQdot;
@@ -535,10 +561,9 @@ bool Foam::combustionModels::laminarSoot<ReactionThermo>::read()
 }
 
 template<class ReactionThermo>
-bool Foam::combustionModels::laminarSoot<ReactionThermo>::readPAHs()
+bool Foam::combustionModels::laminarSoot<ReactionThermo>::createPAHProps()
 {
     Info << "PAH names: " << PAH_names_ << endl;
-    // sootProps_.readEntry("PAHs", PAH_names_);
     PAH_n_C_.resize(PAH_names_.size());
     PAH_n_H_.resize(PAH_names_.size());
     PAH_indicies_.resize(PAH_names_.size());
@@ -587,7 +612,7 @@ bool Foam::combustionModels::laminarSoot<ReactionThermo>::readPAHs()
 
 // Building Dimers
 template<class ReactionThermo>
-void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
+void Foam::combustionModels::laminarSoot<ReactionThermo>::createDimerProps()
 {
     basicSpecieMixture& composition = this->thermo().composition();
 
@@ -628,7 +653,7 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::buildDimers()
 
 // Building Dimers
 template<class ReactionThermo>
-void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
+void Foam::combustionModels::laminarSoot<ReactionThermo>::createSpeciesProps()
 {
     basicSpecieMixture& composition = this->thermo().composition();
     forAll(speciesList_, i)
@@ -650,7 +675,7 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::findIndicies()
             speciesList_[i],
             i
         );
-        Info << speciesList_[i] << " is found! Index= " << speciesIndicies_[speciesList_[i]] << " hashKeyIndex: " << speciesIds_(speciesList_[i]) << endl;
+        Info << speciesList_[i] << " is found! Index= " << speciesIndicies_[speciesList_[i]] << " Id: " << speciesIds_(speciesList_[i]) << endl;
     }
 }
 
@@ -667,22 +692,14 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateMorphology()
         Info<< "enforcing n_p = 1\n" << endl;
         n_p_.min(1.00000001);
     }
-    // Total volume of soot per kg of gas
-    // volScalarField V_tot(C_tot() * W_carbon_ / rho_soot_);
-    // Volume of each primary particles
-    // volScalarField V_p(V_tot / (N_pri() * Av_));
     // Primary particle diameter
-    // d_p_ = pow(6.0 * V_p / (pi_), 1.0/3.0);
-    d_p_ = pow(
-        (6.0 * pi_)*
-        (C_tot() * W_carbon_) / rho_soot_ /
-        (N_pri() * Av_)
-        ,1.0/3.0
+    d_p_ = pow (
+        (6.0 / pi_) *
+        (C_tot() * W_carbon_) / rho_soot_ *
+        1.0 / (N_pri() * Av_)
+        , 1.0/3.0
     );
     // Surface area of each primary particle
-    // volScalarField A_p(pi_ * d_p_ * d_p_);
-    // Total surface area
-    // A_tot_ = N_pri() * Av_ * A_p;
     A_tot_ = N_pri() * Av_ * pi_ * d_p_ * d_p_;
     //  Mobility diameter
     d_m_ = d_p_ * pow(n_p_, 0.45);
@@ -825,14 +842,17 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateCoagulation()
     volScalarField mu (this->thermo().mu());
     volScalarField rho (this->thermo().rho());
     // Free Molecule
-    volScalarField beta_fm(4 * pow(pi_ * kB_ * this->thermo().T() / (V_agg() * rho_soot_), 0.5) * d_g_ * d_g_);
+    volScalarField beta_fm
+    (
+        4 * pow(pi_ * kB_ * T / m_agg(), 0.5) * d_g_ * d_g_
+    );
     // Continuum
     volScalarField beta_cont(
         (8 * kB_ / (3 * mu)) * T * ( 1.0 + (2.0 * lambda_gas() / d_m_ )*(1.21 + 0.4*exp(-0.78*d_m_/lambda_gas())))
     );
     // Coagulation source term
     if (coagulation_enabled_){
-        S_coag_N_agg_ = 0.5 * 1.82 * beta_fm * beta_cont / (beta_fm + beta_cont) * N_agg() * N_agg() * Av_ * rho;   
+        S_coag_N_agg_ = 0.5 * 1.82 * beta_fm * beta_cont / (beta_fm + beta_cont) * pow(N_agg(), 2.0) * Av_ * rho;   
     }
 }
 
@@ -930,6 +950,7 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::updateSoot()
         solve(H_totEqn);
         fvOptions.correct(H_tot_);
     }
+
 }
 
 

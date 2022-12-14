@@ -87,7 +87,6 @@ protected:
     // Soot properties dictionary
     const IOdictionary sootProps_;
 
-
     // Inception Flag
     bool inception_enabled_;
     // HACA Surface growth Flags
@@ -134,6 +133,7 @@ protected:
     wordList speciesList_;
     // Scrubbing rates
     PtrList<volScalarField::Internal> SR_;
+
     // Species Indicies
     HashTable<label> speciesIndicies_;
     HashTable<label> speciesIds_;
@@ -204,11 +204,11 @@ public:
         //- Update properties from given dictionary
         virtual bool read();
 
-        virtual bool readPAHs();
+        virtual bool createPAHProps();
 
-        virtual void buildDimers();
+        virtual void createDimerProps();
 
-        virtual void findIndicies();
+        virtual void createSpeciesProps();
 
         virtual void updateMorphology();
 
@@ -228,7 +228,7 @@ public:
         virtual dimensioned<scalar> W(label index)
         {
             basicSpecieMixture& composition = this->thermo().composition();
-            return composition.W(index) / 1000 * dimensionedScalar("onekgPerMol", dimensionSet(1,0,0,0,-1,0,0), scalar(1));
+            return composition.W(index) / 1000.0 * dimensionedScalar(dimensionSet(1,0,0,0,-1,0,0), scalar(1));
         };
         
         // Return concentration in mol/m3
@@ -280,8 +280,12 @@ public:
             return tmp<volScalarField>
             (
                 new volScalarField
-                (
-                    this->thermo().mu() / this->thermo().rho() * pow(pi_ * this->thermo().W() / (2.0* kB_ * Av_ * this->thermo().T()), 0.5)
+                (   
+                    max
+                    (
+                        this->thermo().mu() / this->thermo().rho() * pow(pi_ * this->thermo().W() / (2.0* kB_ * Av_ * this->thermo().T()), 0.5),
+                        dimensionedScalar(dimensionSet(0,1,0,0,0,0,0), SMALL) 
+                    )
                 )
             );
         };
@@ -343,7 +347,7 @@ public:
                 new volScalarField
                 (
                     "k_FWD",
-                    (1.0 * 2.2 * 0.1 * Av_ * d_reduced * d_reduced * pow(8.0 * pi_ * kB_ / m_reduced, 0.5) * pow(T, 0.5))
+                    (1.0 * 2.2 * 0.1 * Av_ * d_reduced * d_reduced * pow(8.0 * pi_ * kB_ * T / m_reduced, 0.5))
                 )
             );
         };
@@ -352,8 +356,8 @@ public:
         {
             // Constants
             dimensionedScalar a_k_REV("a_k_REV", dimensionSet(0,0,0,0,0,0,0),  scalar(0.115));
-            dimensionedScalar b_k_REV("b_k_REV", dimensionSet(0,0,0,0,0,0,0),  scalar(0.18));
-            dimensionedScalar c_k_REV("c_k_REV", dimensionSet(0,2,-2,0,0,0,0), scalar(970688.0));
+            dimensionedScalar b_k_REV("b_k_REV", dimensionSet(0,0,0,0,0,0,0),  scalar(1.8));
+            dimensionedScalar c_k_REV("c_k_REV", dimensionSet(0,2,-2,0,0,0,0), scalar(933420.0));
             dimensionedScalar d_k_REV("d_k_REV", dimensionSet(1,2,-2,0,-1,0,0),scalar(34069.0));
 
             const volScalarField& T = this->thermo().T();
@@ -400,7 +404,11 @@ public:
                 new volScalarField
                 (
                     "dimerROP",
-                    (k_REAC() * k_FWD(id1, id2) * C(index1) * C(index2) / (k_REAC() + k_REV(id1, id2)))
+                    max
+                    (
+                        k_REAC() * k_FWD(id1, id2) * C(index1) * C(index2) / (k_REAC() + k_REV(id1, id2)),
+                        dimensionedScalar(dimensionSet(0,-3,-1,0,1,0,0), scalar(0.0))
+                    )
                 )
             );
         }
@@ -470,9 +478,6 @@ public:
             volScalarField k_1(k_unit * 4.17e7 * exp(oneKelvin * (-6542.52) / T));
             volScalarField k_2(k_unit * 1.00e4 * pow(T/oneKelvin, 0.734) * exp(oneKelvin * (-719.68) / T));
             volScalarField k_3(k_unit * 2.00e7 * pow(T/oneKelvin, 0.0));
-            // volScalarField k_4(k_unit * 8.00e1 * pow(T/oneKelvin, 1.56) * exp(oneKelvin * (-1912.43) / T));
-            // volScalarField k_5(k_unit * 2.20e6 * exp(oneKelvin * (-3774.53) / T));
-            // volScalarField k_6(k_unit * 0.13e0 * pow(T/oneKelvin, 0.0));
 
             // Reverse Reaction Rates
             // Units : m3/mol-s
@@ -480,13 +485,13 @@ public:
             volScalarField k_r_2(k_unit * 3.68e2 * pow(T/oneKelvin, 1.139) * exp(oneKelvin * (-8605.94) / T));
 
             // chi_soot_0
-            dimensionedScalar chi_soot_0_denum_limit("chi_soot_0_denum_limit",dimless/dimTime, scalar(1e-20));
+            // dimensionedScalar chi_soot_0_denum_limit("chi_soot_0_denum_limit",dimless/dimTime, scalar(1e-20));
             volScalarField chi_soot_0_denum
             (
                 max 
                 (
                     k_r_1 * C(H2_i) + k_r_2 * C(H2O_i) + k_3 * C(H_i) + k_4_HACA() * C(C2H2_i) + k_5_HACA() * C(O2_i) + k_1 * C(H_i) + k_2 * C(OH_i),
-                    chi_soot_0_denum_limit
+                    dimensionedScalar(dimless/dimTime, SMALL)
                 )
             );
 
@@ -543,7 +548,11 @@ public:
             (
                 new volScalarField
                 (
-                    alpha() * k_4_HACA() * C(C2H2_i) * C_soot_0()
+                    max
+                    (
+                        alpha() * k_4_HACA() * C(C2H2_i) * C_soot_0(),
+                        dimensionedScalar(dimensionSet(0,-3,-1,0,1,0,0), scalar(0.0))
+                    )
                 )
             );
         }
@@ -556,7 +565,11 @@ public:
             (
                 new volScalarField
                 (
-                    2 * alpha() * k_5_HACA() * C(O2_i) * C_soot_0()             
+                    max
+                    (
+                        2 * alpha() * k_5_HACA() * C(O2_i) * C_soot_0(),
+                        dimensionedScalar(dimensionSet(0,-3,-1,0,1,0,0), scalar(0.0))         
+                    )
                 )
             );
         }
@@ -569,7 +582,11 @@ public:
             (
                 new volScalarField
                 (
-                    k_6_HACA() * C(OH_i) * N_agg() * rho               
+                    max
+                    (
+                        k_6_HACA() * C(OH_i) * N_agg() * rho,               
+                        dimensionedScalar(dimensionSet(0,-3,-1,0,1,0,0), scalar(0.0))
+                    )
                 )
             );
         }
@@ -577,6 +594,7 @@ public:
 
         //---------------------------------------------------------------------------------------------
         // PAH Adsorption Rate
+
         virtual tmp<volScalarField> PAHAdsorptionRate(label id)
         {
 
@@ -584,6 +602,8 @@ public:
             label index = PAH_indicies_[id];
             // Temperature
             const volScalarField& T = this->thermo().T();
+            // Density
+            const volScalarField rho = this->thermo().rho();
             // Viscosity of gas
             volScalarField mu = this->thermo().mu();
             // beta fm coag PAH-soot
@@ -602,7 +622,7 @@ public:
             );
             volScalarField beta_cont_soot_PAH
             (
-                2 * kB_ * T / (3 * mu) * (C_s_soot_d_m / d_g_ + C_s_soot_d_PAH / d_PAH(id)) * (d_g_ + d_PAH(id))
+                2.0 * kB_ * T / (3.0 * mu) * (C_s_soot_d_m / d_g_ + C_s_soot_d_PAH / d_PAH(id)) * (d_g_ + d_PAH(id))
             );
             // Forward reaction rate
             volScalarField k_FWD_soot_PAH
@@ -612,9 +632,9 @@ public:
             // W reduced
             // Constants
             dimensionedScalar a_k_REV_soot_PAH(dimensionSet(0,0,0,0,0,0,0),  scalar(0.115));
-            dimensionedScalar b_k_REV_soot_PAH(dimensionSet(0,0,0,0,0,0,0),  scalar(0.18));
-            dimensionedScalar c_k_REV_soot_PAH(dimensionSet(0,2,-2,0,0,0,0), scalar(970688.0));
-            dimensionedScalar d_k_REV_soot_PAH(dimensionSet(1,2,-2,0,-1,0,0),scalar(34069.0));
+            dimensionedScalar b_k_REV_soot_PAH(dimensionSet(0,0,0,0,0,0,0),  scalar(1.8));
+            dimensionedScalar c_k_REV_soot_PAH(dimensionSet(0,2,-2,0,0,0,0), scalar(933420.0));
+            dimensionedScalar d_k_REV_soot_PAH(dimensionSet(1,2,-2,0,-1,0,0),scalar(34053.0));
             // W soot
             volScalarField W_soot(C_tot() * W_carbon_ / N_agg());
             volScalarField epsilon_soot_PAH
@@ -628,20 +648,21 @@ public:
             );
 
             // Chemical adsorption rate
-            dimensionedScalar Ea_k_REAC_soot_PAH(dimensionSet(1,2,-2,0,-1,0,0), scalar(209631.0));
-            dimensionedScalar A_k_REAC_soot_PAH(dimensionSet(0,3,-1,0,-1,0,0), scalar(1.0e10));
+            dimensionedScalar Ea_k_REAC_soot_PAH(dimensionSet(1,2,-2,0,-1,0,0), scalar(96232.0));
+            dimensionedScalar A_k_REAC_soot_PAH(dimensionSet(0,3,-1,0,-1,0,0), scalar(2.0e10));
             volScalarField k_REAC_soot_PAH
             (
                 A_k_REAC_soot_PAH * exp(-Ea_k_REAC_soot_PAH / (Ru_ * T))
             );
-            // Soot concentration
-            // volScalarField C_soot(N_agg * rho);
-            // k_REAC_soot_PAH * k_FWD_soot_PAH * C(index) * (N_agg * rho) / (k_REAC_soot_PAH + k_REV_soot_PAH)
             return tmp<volScalarField>
             (
                 new volScalarField
                 (
-                    k_REAC_soot_PAH * k_FWD_soot_PAH * C(index) * (N_agg() * this->thermo().rho()) / (k_REAC_soot_PAH + k_REV_soot_PAH)
+                    max
+                    (
+                        k_REAC_soot_PAH * k_FWD_soot_PAH * C(index) * (N_agg() * rho) / (k_REAC_soot_PAH + k_REV_soot_PAH),
+                        dimensionedScalar(dimensionSet(0,-3,-1,0,1,0,0), scalar(0.0))
+                    )
                 )
             );
         }
@@ -658,7 +679,7 @@ public:
                 ( 1.0 + 2.0 * lambda_gas() / d_m_ *(1.21 + 0.4*exp(-0.78*d_m_/lambda_gas())))
             );
 
-            f_gas_particle.max(1e-20);
+            f_gas_particle.max(SMALL);
             
             return tmp<volScalarField>
             (
