@@ -129,6 +129,8 @@ protected:
 
     // Precursor PAH Info
     wordList PAH_names_;
+    // HACA related species
+    wordList HACASpeciesList_;
     // Species List
     wordList speciesList_;
     // Scrubbing rates

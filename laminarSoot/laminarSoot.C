@@ -95,7 +95,7 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::H_min_ =
     Foam::dimensionedScalar(
         "H_min_",
         Foam::dimensionSet(0,0,0,0,0,0,0),
-        scalar(378)
+        scalar(20)
     );
 
 template<class ReactionThermo> const Foam::dimensionedScalar 
@@ -342,9 +342,12 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
     (
         sootProps_.lookup("PAHs")
     ),
+    HACASpeciesList_(
+        {"H", "H2", "OH", "H2O", "C2H2", "O2", "CO"}
+    ),
     speciesList_
     (
-        PAH_names_.size() + 7
+        PAH_names_.size() + HACASpeciesList_.size()
     ),
     SR_(
         speciesList_.size()
@@ -360,38 +363,6 @@ Foam::combustionModels::laminarSoot<ReactionThermo>::laminarSoot
         Info<< "    using instantaneous reaction rate" << endl;
     }
 
-    wordList HACASpeciesList_ = {"H", "H2", "OH", "H2O", "C2H2", "O2", "CO"};
-    
-    forAll(PAH_names_,i){
-        speciesList_[i] = PAH_names_[i];
-    }
-    forAll(HACASpeciesList_,i){
-        label spid = i + PAH_names_.size();
-        speciesList_[spid]= HACASpeciesList_[i];
-    }
-    Info << "List of species: " << speciesList_ << endl;
-
-    // Create the fields for the chemistry sources
-    forAll(SR_, fieldi)
-    {
-        SR_.set
-        (
-            fieldi,
-            new volScalarField::Internal
-            (
-                IOobject
-                (
-                    "SR." + speciesList_[fieldi],
-                    this->mesh().time().timeName(),
-                    this->mesh(),
-                    IOobject::NO_READ,
-                    IOobject::NO_WRITE
-                ),
-                this->mesh(),
-                dimensionedScalar(dimMass/dimVolume/dimTime, Zero)
-            )
-        );
-    }
 
     createPAHProps();
     createDimerProps();
@@ -656,6 +627,17 @@ template<class ReactionThermo>
 void Foam::combustionModels::laminarSoot<ReactionThermo>::createSpeciesProps()
 {
     basicSpecieMixture& composition = this->thermo().composition();
+    
+    forAll(PAH_names_,i){
+        speciesList_[i] = PAH_names_[i];
+    }
+    forAll(HACASpeciesList_,i){
+        label spid = i + PAH_names_.size();
+        speciesList_[spid]= HACASpeciesList_[i];
+    }
+    Info << "List of species: " << speciesList_ << endl;
+
+
     forAll(speciesList_, i)
     {
         const label specieIndex = composition.species()[speciesList_[i]];
@@ -676,6 +658,28 @@ void Foam::combustionModels::laminarSoot<ReactionThermo>::createSpeciesProps()
             i
         );
         Info << speciesList_[i] << " is found! Index= " << speciesIndicies_[speciesList_[i]] << " Id: " << speciesIds_(speciesList_[i]) << endl;
+    }
+    
+    // Create the fields for the chemistry sources
+    forAll(SR_, fieldi)
+    {
+        SR_.set
+        (
+            fieldi,
+            new volScalarField::Internal
+            (
+                IOobject
+                (
+                    "SR." + speciesList_[fieldi],
+                    this->mesh().time().timeName(),
+                    this->mesh(),
+                    IOobject::NO_READ,
+                    IOobject::NO_WRITE
+                ),
+                this->mesh(),
+                dimensionedScalar(dimMass/dimVolume/dimTime, Zero)
+            )
+        );
     }
 }
 
